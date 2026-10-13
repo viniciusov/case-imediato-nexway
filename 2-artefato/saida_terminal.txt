@@ -1,0 +1,70 @@
+
+SIMULAÇÃO: idempotência na integração de eventos de transporte
+Hipótese: reenvio, atraso, ERP fora do ar e replay não duplicam nem perdem faturas
+e não regridem o status de uma entrega.
+
+ENTRADA (eventos fictícios, na ordem em que chegam)
+------------------------------------------------------------------------------------------------
+ #  Entrega  Tipo         Ocorreu ERP    Situação simulada
+ 1  ENT-101  COLETADO     08:00   ok     Coleta da entrega 101
+ 2  ENT-101  EM_TRANSITO  09:10   ok     Entrega 101 em trânsito
+ 3  ENT-101  ENTREGUE     10:05   ok     Entrega 101 concluída
+ 4  ENT-101  ENTREGUE     10:05   ok     REENVIO do mesmo evento após a unidade reconectar (duplicata)
+ 5  ENT-102  COLETADO     08:30   ok     Coleta da entrega 102
+ 6  ENT-102  ENTREGUE     11:20   FORA   Entrega 102 concluída, mas o ERP está FORA DO AR
+ 7  ENT-102  EM_TRANSITO  09:40   FORA   Evento ATRASADO: 'em trânsito' chega depois de 'entregue'
+ 8  ENT-103  ENTREGEU     --:--   ok     Evento INVÁLIDO: tipo desconhecido e sem horário (ERP volta ao ar)
+ 9  ENT-103  COLETADO     10:00   ok     Coleta da entrega 103
+Depois do dia: REPROCESSAMENTO completo de todos os eventos (replay), com o ERP no ar.
+
+PASSO A PASSO: Camada de integração (proposta)
+------------------------------------------------------------------------------------------------
+[dia   ]  1  ENT-101          COLETADO       aceito                status = COLETADO
+[dia   ]  2  ENT-101          EM_TRANSITO    aceito                status = EM_TRANSITO
+[dia   ]  3  ENT-101          ENTREGUE       aceito                status = ENTREGUE; enviado à fila do ERP
+[dia   ]  -  ENT-101          ADAPTADOR_ERP  entregue              fatura criada
+[dia   ]  4  ENT-101          ENTREGUE       duplicata descartada  chave 4956effc84 já vista
+[dia   ]  5  ENT-102          COLETADO       aceito                status = COLETADO
+[dia   ]  6  ENT-102          ENTREGUE       aceito                status = ENTREGUE; enviado à fila do ERP
+[dia   ]  -  ENT-102          ADAPTADOR_ERP  aguardando            ERP fora do ar: mensagem continua na fila
+[dia   ]  7  ENT-102          EM_TRANSITO    aceito                status mantido (ENTREGUE); evento antigo só no histórico
+[dia   ]  8  ENT-103          ENTREGEU       quarentena            tipo desconhecido ou sem horário
+[dia   ]  -  ENT-102          ADAPTADOR_ERP  entregue              fatura criada
+[dia   ]  9  ENT-103          COLETADO       aceito                status = COLETADO
+[replay]  1  ENT-101          COLETADO       aceito                status mantido (ENTREGUE); evento antigo só no histórico
+[replay]  2  ENT-101          EM_TRANSITO    aceito                status mantido (ENTREGUE); evento antigo só no histórico
+[replay]  3  ENT-101          ENTREGUE       aceito                status mantido (ENTREGUE); evento antigo só no histórico; enviado à fila do ERP
+[replay]  -  ENT-101          ADAPTADOR_ERP  entregue              fatura com esta referência já existe: nada criado
+[replay]  4  ENT-101          ENTREGUE       aceito                status mantido (ENTREGUE); evento antigo só no histórico; enviado à fila do ERP
+[replay]  -  ENT-101          ADAPTADOR_ERP  entregue              fatura com esta referência já existe: nada criado
+[replay]  5  ENT-102          COLETADO       aceito                status mantido (ENTREGUE); evento antigo só no histórico
+[replay]  6  ENT-102          ENTREGUE       aceito                status mantido (ENTREGUE); evento antigo só no histórico; enviado à fila do ERP
+[replay]  -  ENT-102          ADAPTADOR_ERP  entregue              fatura com esta referência já existe: nada criado
+[replay]  7  ENT-102          EM_TRANSITO    aceito                status mantido (ENTREGUE); evento antigo só no histórico
+[replay]  8  ENT-103          ENTREGEU       quarentena            continua em quarentena (não duplica o registro)
+[replay]  9  ENT-103          COLETADO       aceito                status mantido (COLETADO); evento antigo só no histórico
+
+RESULTADO: ESPERADO x OBSERVADO
+----------------------------------------------------------------------------------------------------------------
+Momento: fim do dia
+Verificação                                   Esperado         Sem camada               Com camada              
+----------------------------------------------------------------------------------------------------------------
+Reenvio não gera 2ª fatura (ENT-101)          1 fatura         FALHA: 2                 OK: 1                   
+ERP fora do ar não perde a fatura (ENT-102)   1 fatura         FALHA: 0                 OK: 1                   
+Fora de ordem não regride o status (ENT-102)  ENTREGUE         FALHA: EM_TRANSITO       OK: ENTREGUE            
+Inválido vai para quarentena (ENT-103)        1 em quarentena  FALHA: 0 em quarentena   OK: 1 em quarentena     
+Faturas certas em todas as entregas           1 / 1 / 0        FALHA: 2 / 0 / 0         OK: 1 / 1 / 0           
+----------------------------------------------------------------------------------------------------------------
+Momento: após replay
+Verificação                                   Esperado         Sem camada               Com camada              
+----------------------------------------------------------------------------------------------------------------
+Reenvio não gera 2ª fatura (ENT-101)          1 fatura         FALHA: 4                 OK: 1                   
+ERP fora do ar não perde a fatura (ENT-102)   1 fatura         OK: 1                    OK: 1                   
+Fora de ordem não regride o status (ENT-102)  ENTREGUE         FALHA: EM_TRANSITO       OK: ENTREGUE            
+Inválido vai para quarentena (ENT-103)        1 em quarentena  FALHA: 0 em quarentena   OK: 1 em quarentena     
+Faturas certas em todas as entregas           1 / 1 / 0        FALHA: 4 / 1 / 0         OK: 1 / 1 / 0           
+----------------------------------------------------------------------------------------------------------------
+Verificações atendidas: sem camada 1/10  |  com camada 10/10
+
+Resultado também salvo em: resultado_simulacao.md
+
