@@ -107,19 +107,3 @@ O script também grava `resultado_simulacao.md` com as tabelas e o passo a passo
 5. **Verificação:** executei o script e conferi cada linha do passo a passo contra o resultado esperado; confirmei que o grupo de controle falha onde deveria (se tudo passasse nos dois modelos, o teste não provaria nada); rodei a variante sem a verificação no ERP para garantir que as verificações detectam uma defesa removida; executei duas vezes para confirmar que o resultado é sempre o mesmo.
 6. **Corrigido, rejeitado ou mantido sob decisão humana:** na primeira versão, o total de faturas do controle no fim do dia dava "certo" por coincidência (uma duplicada e uma perdida somavam 2); troquei a verificação para conferir cada entrega. Também corrigi o replay, que registrava o mesmo evento inválido duas vezes na quarentena. As regras de negócio (o que fatura, a ordem dos status) e a escolha da hipótese ficaram sob minha decisão. [Ajuste este item com o que você revisou ou mudou pessoalmente.]
 7. **Reuso pela equipe:** os eventos de entrada e o resultado esperado ficam no topo do script; para testar outro cenário, basta acrescentar linhas em `ENTRADA` e ajustar `ESPERADO`. O mesmo formato serve como base para os testes de aceite do piloto.
-
-## Roteiro da demonstração (10 minutos)
-
-1. **Minuto 0 a 2: hipótese.** Por que ela é crítica: entrega "pelo menos uma vez" mais idempotência é o que garante efeito uma única vez. O pior caso para o negócio é fatura em dobro.
-2. **Minuto 2 a 4: entrada.** Mostrar a tabela de eventos e apontar os três casos difíceis: reenvio (passo 4), ERP fora do ar com evento atrasado (passos 6 e 7) e evento inválido (passo 8).
-3. **Minuto 4 a 7: rodar.** Executar e percorrer o passo a passo da camada, apontando cada decisão: "duplicata descartada", "aguardando", "status mantido", "quarentena" e, no replay, "fatura com esta referência já existe".
-4. **Minuto 7 a 9: resultado.** Tabela final: controle 1 de 10, camada 10 de 10. Destacar que o replay sem camada recupera a fatura perdida mas duplica as outras.
-5. **Minuto 9 a 10: limitações e próximo passo.** Rodar `--sem-verificacao-erp` se houver tempo (mostra a defesa em profundidade). Fechar dizendo o que a simulação não prova e que a validação real é o spike do piloto.
-
-## Perguntas prováveis da banca
-
-- **"E se dois eventos legítimos gerarem a mesma chave?"** Risco registrado: se o horário tiver precisão de minutos, acrescentar à chave um sequencial ou a unidade. Preferível usar o ID do evento na origem, se o TMS fornecer.
-- **"E concorrência, duas cópias ao mesmo tempo?"** Não testada aqui. Na implementação real, a chave é gravada de forma atômica (inserção com restrição de unicidade ou escrita condicional), e só uma das cópias vence.
-- **"Por que guardar a referência no ERP se já há deduplicação?"** Porque a deduplicação tem janela de retenção e pode ser contornada no reprocessamento; a referência na fatura é permanente. O teste `--sem-verificacao-erp` mostra o efeito.
-- **"Por que a chave usa o horário da ocorrência e não o de recebimento?"** Porque um reenvio chega em outro horário; com o horário de recebimento, a mesma entrega geraria chaves diferentes e passaria como evento novo.
-- **"Como isso vira teste do piloto?"** Os mesmos cenários viram casos de teste nas semanas 9 e 10, agora contra o SAP B1 e o TMS reais.
